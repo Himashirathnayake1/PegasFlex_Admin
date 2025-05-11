@@ -7,11 +7,6 @@ An elegant and animated admin panel built in **Flutter**, designed for managing:
 
 > 🎯 This app runs without any login functionality and directly displays the animated dashboard for quick access and high performance.
 
----
-
-## 📸 Preview
-
-![Dashboard UI](./assets/dashboard_preview.png)
 
 ---
 
@@ -36,8 +31,6 @@ An elegant and animated admin panel built in **Flutter**, designed for managing:
 - Custom card shadows and gradients  
 - Animated containers and gesture handling
 
----
 
-## 📂 Folder Structure
 
 
