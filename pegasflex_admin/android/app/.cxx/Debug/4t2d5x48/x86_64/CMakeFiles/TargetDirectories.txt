@@ -1,0 +1,2 @@
+C:/Users/DELL Latitude 7290/Desktop/pegas/PegasFlex_Admin/pegasflex_admin/android/app/.cxx/Debug/4t2d5x48/x86_64/CMakeFiles/edit_cache.dir
+C:/Users/DELL Latitude 7290/Desktop/pegas/PegasFlex_Admin/pegasflex_admin/android/app/.cxx/Debug/4t2d5x48/x86_64/CMakeFiles/rebuild_cache.dir
