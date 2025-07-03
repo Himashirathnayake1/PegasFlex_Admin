@@ -41,7 +41,7 @@ class _PaymentHistoryScreenState extends State<PaymentHistoryScreen> {
       setState(() {
         collected = paidHistorySnap.docs
             .map((doc) => {
-                  'amount': doc['value'],
+                  'amount': doc['increment'],
                   'timestamp': doc['timestamp'],
                 })
             .toList();

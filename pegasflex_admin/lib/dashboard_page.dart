@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:pegasflex_admin/screens/PaymenthistoryScreen.dart';
 import 'package:pegasflex_admin/screens/shop_details.dart';
+import 'package:pegasflex_admin/screens/stock_list.dart';
 
 class DashboardPage extends StatefulWidget {
   const DashboardPage({super.key});
@@ -14,16 +15,119 @@ class DashboardPage extends StatefulWidget {
 class _DashboardPageState extends State<DashboardPage> {
   double upcomingAmount = 0.0;
   double stockAmount = 0.0;
-  double remainingAmount = 0.0;
   double assignedAmount = 0.0;
-  
+  double totalPaidAcrossRoutes = 0;
+  TextEditingController amountSentController = TextEditingController();
+  final TextEditingController codeController = TextEditingController();
+  double weekCollected = 0.0;
+  double targetCollectAmount = 0;
+  final currencyFormatter =
+      NumberFormat.currency(locale: 'en_IN', symbol: 'LKR ');
+  bool isTargetLoading = true;
+  bool isWeekCollectLoading = false;
+  DateTime selectedDate = DateTime.now();
+  double totalPaidForSelectedDate = 0;
+  bool isLoading = false;
+  bool isSubmitting = false;
+
+  void _changeDate(int offset) {
+    setState(() {
+      selectedDate = selectedDate.add(Duration(days: offset));
+    });
+    _fetchTotalPaidForDate();
+  }
+
   @override
   void initState() {
     super.initState();
+    _fetchTotalPaidAcrossAllRoutes();
+    _fetchWeekCollected();
+    _fetchTotalPaidForDate();
+    _loadTargetCollectAmount();
     loadDashboardData();
   }
-   Future<void> _fetchTotalPaidAcrossAllRoutes() async {
-    double totalPaid = 0;
+
+  void _showEditTargetDialog(
+      BuildContext context, String current, Function(String) onSave) {
+    final controller =
+        TextEditingController(text: current.replaceAll(RegExp(r'[^\d.]'), ''));
+
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text("Edit Target Amount"),
+        content: TextField(
+          controller: controller,
+          keyboardType: TextInputType.numberWithOptions(decimal: true),
+          decoration: const InputDecoration(
+            labelText: 'Target Amount (LKR)',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text("Cancel"),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              onSave(controller.text);
+              Navigator.pop(context);
+            },
+            child: const Text("Save"),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _loadTargetCollectAmount() async {
+    final doc =
+        await FirebaseFirestore.instance.collection('admin').doc('stats').get();
+    if (doc.exists && doc.data()!.containsKey('targetWeek')) {
+      setState(() {
+        targetCollectAmount = (doc.data()!['targetWeek'] ?? 0).toDouble();
+        isTargetLoading = false;
+      });
+    } else {
+      setState(() {
+        targetCollectAmount = 0;
+        isTargetLoading = false;
+      });
+    }
+  }
+
+  Future<void> _saveTargetCollectAmount(double value) async {
+    await FirebaseFirestore.instance
+        .collection('admin')
+        .doc('stats')
+        .set({'targetWeek': value}, SetOptions(merge: true));
+  }
+
+  Future<void> _fetchTotalPaidForDate() async {
+    setState(() {
+      isLoading = true;
+    });
+
+    final Timestamp startOfDay = Timestamp.fromDate(DateTime(
+      selectedDate.year,
+      selectedDate.month,
+      selectedDate.day,
+      0,
+      0,
+      0,
+    ));
+
+    final Timestamp endOfDay = Timestamp.fromDate(DateTime(
+      selectedDate.year,
+      selectedDate.month,
+      selectedDate.day,
+      23,
+      59,
+      59,
+    ));
+
+    double total = 0;
 
     final routesSnapshot =
         await FirebaseFirestore.instance.collection('routes').get();
@@ -32,82 +136,112 @@ class _DashboardPageState extends State<DashboardPage> {
       final shopsSnapshot = await routeDoc.reference.collection('shops').get();
 
       for (var shopDoc in shopsSnapshot.docs) {
-        final shopData = shopDoc.data();
-        final shopTotalPaid = shopData['totalPaid'];
+        final transactionsSnapshot = await shopDoc.reference
+            .collection('transactions')
+            .where('timestamp', isGreaterThanOrEqualTo: startOfDay)
+            .where('timestamp', isLessThanOrEqualTo: endOfDay)
+            .get();
 
-        if (shopTotalPaid != null) {
-          totalPaid += (shopTotalPaid as num).toDouble();
+        for (var txnDoc in transactionsSnapshot.docs) {
+          final data = txnDoc.data();
+          final type = data['type'];
+          final amount = (data['amount'] ?? 0).toDouble();
+
+          // Include if type is not 'credit' or type is missing
+          if (type == null || type == 'paid' || type != 'Credit') {
+            total += amount;
+          }
         }
       }
     }
-    // ✅ Save totalPaid to Firestore (admin/summary)
-    await FirebaseFirestore.instance.collection('admin').doc('summary').set({
-      'latestTotalPaid': totalPaid,
-      'updatedAt': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
 
-    // ✅ Update local state
+    setState(() {
+      totalPaidForSelectedDate = total;
+      isLoading = false;
+    });
+  }
+
+  Future<void> _fetchWeekCollected() async {
+    setState(() => isWeekCollectLoading = true);
+    final now = DateTime.now();
+
+    // Get Monday and Sunday of the current week
+    final int currentWeekday = now.weekday; // Monday = 1, Sunday = 7
+    final DateTime mondayThisWeek =
+        now.subtract(Duration(days: currentWeekday - 1));
+    final DateTime sundayThisWeek = mondayThisWeek.add(const Duration(days: 6));
+
+    final Timestamp startOfWeek = Timestamp.fromDate(DateTime(
+      mondayThisWeek.year,
+      mondayThisWeek.month,
+      mondayThisWeek.day,
+      0,
+      0,
+      0,
+    ));
+
+    final Timestamp endOfWeek = Timestamp.fromDate(DateTime(
+      sundayThisWeek.year,
+      sundayThisWeek.month,
+      sundayThisWeek.day,
+      23,
+      59,
+      59,
+    ));
+
+    double total = 0;
+
+    // Get all routes
+    final routesSnapshot =
+        await FirebaseFirestore.instance.collection('routes').get();
+
+    for (var routeDoc in routesSnapshot.docs) {
+      final shopsSnapshot = await routeDoc.reference.collection('shops').get();
+
+      for (var shopDoc in shopsSnapshot.docs) {
+        final transactionsSnapshot = await shopDoc.reference
+            .collection('transactions')
+            .where('timestamp', isGreaterThanOrEqualTo: startOfWeek)
+            .where('timestamp', isLessThanOrEqualTo: endOfWeek)
+            .get();
+
+        for (var txnDoc in transactionsSnapshot.docs) {
+          final data = txnDoc.data();
+          final type = data['type'];
+          final amount = (data['amount'] ?? 0).toDouble();
+
+          // Include if type is not 'credit' or type is missing
+          if (type == null || type == 'paid' || type != 'Credit') {
+            total += amount;
+          }
+        }
+      }
+    }
+
+    setState(() {
+      weekCollected = total;
+      isWeekCollectLoading = false;
+    });
+  }
+
+  Future<void> _fetchTotalPaidAcrossAllRoutes() async {
+    final summaryDoc = await FirebaseFirestore.instance
+        .collection('admin')
+        .doc('summary')
+        .get();
+
+    final totalPaid = (summaryDoc.data()?['latestTotalPaid'] ?? 0).toDouble();
+
     setState(() {
       totalPaidAcrossRoutes = totalPaid;
     });
   }
 
-  void openGoogleForm() async {
-    final amountText = amountSentController.text.trim();
-
-    if (amountText.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Please enter the amount sent")),
-      );
-      return;
-    }
-
-    final double? amountSent = double.tryParse(amountText);
-    if (amountSent == null || amountSent <= 0) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Enter a valid amount")),
-      );
-      return;
-    }
-
-    // ✅ Save the deduction entry for history
-    await FirebaseFirestore.instance.collection('deductions').add({
-      'amount': amountSent,
-      'sentAt': FieldValue.serverTimestamp(),
-    });
-
-    // ✅ Save summary
-    await FirebaseFirestore.instance.collection('admin').doc('summary').set({
-      'lastSentAmount': amountSent,
-      'sentAt': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
-
-    // ✅ Reset all shops with status == 'Paid'
-    final routesSnapshot =
-        await FirebaseFirestore.instance.collection('routes').get();
-
-    for (var routeDoc in routesSnapshot.docs) {
-      final shopsSnapshot = await routeDoc.reference.collection('shops').get();
-
-      for (var shopDoc in shopsSnapshot.docs) {
-        final shopData = shopDoc.data();
-        if (shopData['status'] == 'Paid') {
-          await shopDoc.reference.update({
-            'status': 'Unpaid',
-            'totalPaid': 0,
-          });
-        }
-      }
-    }
-
-    // ✅ Reset total paid locally
-    setState(() {
-      totalPaidAcrossRoutes = 0;
-    });
-  }
-
-
   Future<void> loadDashboardData() async {
+    setState(() {
+      isLoading = true;
+    });
+
     final shopsSnapshot =
         await FirebaseFirestore.instance.collectionGroup('shops').get();
 
@@ -160,8 +294,9 @@ class _DashboardPageState extends State<DashboardPage> {
     setState(() {
       upcomingAmount = totalUpcoming;
       stockAmount = (statsDoc.data()?['stockAmount'] ?? 0).toDouble();
-      remainingAmount = currentLatestPaid;
-      assignedAmount = savedAssigned;
+      assignedAmount =
+          (savedAssigned - currentLatestPaid).clamp(0, double.infinity);
+      isLoading = false;
     });
   }
 
@@ -206,9 +341,18 @@ class _DashboardPageState extends State<DashboardPage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text("Dashboard",
-                    style:
-                        TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
+                Row(
+                  children: [
+                    const Text("Dashboard",
+                        style: TextStyle(
+                            fontSize: 24, fontWeight: FontWeight.bold)),
+                    Spacer(),
+                    IconButton(
+                      icon: const Icon(Icons.refresh),
+                      onPressed: loadDashboardData,
+                    ),
+                  ],
+                ),
                 const SizedBox(height: 20),
                 Row(
                   children: [
@@ -239,32 +383,93 @@ class _DashboardPageState extends State<DashboardPage> {
                 ),
                 const SizedBox(height: 16),
                 Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: _containerBox(),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  margin:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  decoration: BoxDecoration(
+                    color: const Color.fromARGB(255, 135, 236, 187),
+                    borderRadius: BorderRadius.circular(12),
+                    boxShadow: [
+                      BoxShadow(
+                        color: const Color.fromARGB(255, 182, 204, 129)
+                            .withOpacity(0.2),
+                        blurRadius: 8,
+                        offset: Offset(0, 2),
+                      ),
+                    ],
+                  ),
+                  child: Column(
                     children: [
-                      const Text("Date", style: TextStyle(fontSize: 16)),
-                      Text(today,
-                          style: const TextStyle(fontWeight: FontWeight.bold)),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          IconButton(
+                            icon: Icon(Icons.arrow_left, size: 28),
+                            onPressed: () => _changeDate(-1),
+                          ),
+                          SizedBox(width: 8),
+                          Text(
+                            DateFormat('EEE, MMM d, yyyy').format(selectedDate),
+                            style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.black87,
+                            ),
+                          ),
+                          SizedBox(width: 8),
+                          IconButton(
+                            icon: Icon(Icons.arrow_right, size: 28),
+                            onPressed: () => _changeDate(1),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+                      isLoading
+                          ? AnimatedDots()
+                          : Text(
+                              'Total Paid: Rs.${totalPaidForSelectedDate.toStringAsFixed(2)}',
+                              style: TextStyle(
+                                fontSize: 20,
+                                fontWeight: FontWeight.w600,
+                                color: Colors.green[700],
+                              ),
+                            ),
                     ],
                   ),
                 ),
-                const SizedBox(height: 16),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: _buildCombinedStatusCard(
+                    isWeekCollectLoading: isWeekCollectLoading,
+                    weekCollected: weekCollected,
+                    targetAmount: targetCollectAmount,
+                    isTargetLoading: isTargetLoading,
+                    onTargetEdit: (val) {
+                      final parsed = double.tryParse(val);
+                      if (parsed != null) {
+                        setState(() {
+                          targetCollectAmount = parsed;
+                        });
+                        _saveTargetCollectAmount(parsed);
+                      }
+                    },
+                    gradient: const LinearGradient(
+                      colors: [
+                        Color.fromARGB(255, 247, 204, 124),
+                        Color.fromARGB(255, 235, 226, 145)
+                      ],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                  ),
+                ),
                 Row(
                   children: [
+                    const SizedBox(width: 10),
                     Expanded(
                       child: _buildStatusCard(
-                        title: "Remaining\n(Latest totalPaid)",
-                        amount: currencyFormatter.format(remainingAmount),
-                        icon: Icons.account_balance_wallet_outlined,
-                        color: Colors.orange,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: _buildStatusCard(
-                        title: "Assigned\n(all totalPaid)",
+                        title: "Assigned\n(recieved credit)",
                         amount: currencyFormatter.format(assignedAmount),
                         icon: Icons.assignment_turned_in_outlined,
                         color: Colors.blueGrey,
@@ -291,23 +496,230 @@ class _DashboardPageState extends State<DashboardPage> {
                 AnimatedContainer(
                   duration: const Duration(milliseconds: 600),
                   curve: Curves.easeInOut,
-                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  padding:
+                      const EdgeInsets.symmetric(vertical: 14, horizontal: 8),
                   width: double.infinity,
                   decoration: BoxDecoration(
-                    border: Border.all(color: Colors.red),
+                    border: Border.all(color: Colors.green),
                     borderRadius: BorderRadius.circular(12),
                     color: Colors.white,
                   ),
-                  child: const Center(
-                    child: Text(
-                      "LKR 20,000.00",
-                      style: TextStyle(
-                          color: Colors.red,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        "Collected Total Paid: Rs.${totalPaidAcrossRoutes.toStringAsFixed(2)}\n (still not recieved credit)",
+                        style: const TextStyle(
+                          fontSize: 18,
                           fontWeight: FontWeight.bold,
-                          fontSize: 18),
-                    ),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: amountSentController,
+                        keyboardType: TextInputType.number,
+                        decoration: const InputDecoration(
+                          labelText: "Amount Sent to Owner",
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      ElevatedButton(
+                        onPressed: isSubmitting
+                            ? null
+                            : () async {
+                                setState(() =>
+                                    isSubmitting = true); // 2. Start loading
+
+                                final amountText =
+                                    amountSentController.text.trim();
+
+                                if (amountText.isEmpty) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                        content:
+                                            Text("Please enter an amount.")),
+                                  );
+                                  setState(() => isSubmitting = false);
+                                  return;
+                                }
+
+                                final amount = double.tryParse(amountText);
+                                if (amount == null || amount <= 0) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                        content: Text(
+                                            "Please enter a valid amount.")),
+                                  );
+                                  setState(() => isSubmitting = false);
+                                  return;
+                                }
+
+                                try {
+                                  await FirebaseFirestore.instance
+                                      .collection('deductions')
+                                      .add({
+                                    'amount': amount,
+                                    'sentAt': FieldValue.serverTimestamp(),
+                                  });
+
+                                  await FirebaseFirestore.instance
+                                      .collection('admin')
+                                      .doc('summary')
+                                      .set({
+                                    'lastSentAmount': amount,
+                                    'sentAt': FieldValue.serverTimestamp(),
+                                  }, SetOptions(merge: true));
+
+                                  final routesSnapshot = await FirebaseFirestore
+                                      .instance
+                                      .collection('routes')
+                                      .get();
+                                  double remainingToDeduct = amount;
+                                  const double epsilon = 0.01;
+
+                                  for (var routeDoc in routesSnapshot.docs) {
+                                    final shopsSnapshot = await routeDoc
+                                        .reference
+                                        .collection('shops')
+                                        .get();
+
+                                    for (var shopDoc in shopsSnapshot.docs) {
+                                      final shopData = shopDoc.data();
+                                      double shopPaid =
+                                          (shopData['totalPaid'] ?? 0)
+                                              .toDouble();
+
+                                      if (shopPaid <= epsilon ||
+                                          remainingToDeduct <= epsilon)
+                                        continue;
+
+                                      double deduction;
+                                      if (remainingToDeduct >=
+                                          shopPaid - epsilon) {
+                                        deduction = shopPaid;
+                                        remainingToDeduct -= deduction;
+
+                                        await shopDoc.reference
+                                            .collection('transactions')
+                                            .add({
+                                          'type': 'paid',
+                                          'amount': deduction,
+                                          'resetAt':
+                                              FieldValue.serverTimestamp(),
+                                        });
+
+                                        await shopDoc.reference.update({
+                                          'status': 'Unpaid',
+                                          'totalPaid': 0,
+                                        });
+                                      } else {
+                                        deduction = remainingToDeduct;
+                                        remainingToDeduct = 0;
+
+                                        await shopDoc.reference
+                                            .collection('transactions')
+                                            .add({
+                                          'type': 'partialPaid',
+                                          'amount': deduction,
+                                          'resetAt':
+                                              FieldValue.serverTimestamp(),
+                                        });
+
+                                        double updatedPaid =
+                                            shopPaid - deduction;
+                                        if (updatedPaid <= epsilon)
+                                          updatedPaid = 0;
+
+                                        await shopDoc.reference.update({
+                                          'totalPaid': updatedPaid,
+                                        });
+
+                                        break;
+                                      }
+                                    }
+
+                                    if (remainingToDeduct <= epsilon) break;
+                                  }
+
+                                  if (remainingToDeduct > epsilon) {
+                                    print(
+                                        "⚠️ Still remaining to deduct: $remainingToDeduct");
+                                  }
+
+                                  double updatedTotalPaid = 0;
+                                  final updatedRoutesSnapshot =
+                                      await FirebaseFirestore.instance
+                                          .collection('routes')
+                                          .get();
+
+                                  for (var routeDoc
+                                      in updatedRoutesSnapshot.docs) {
+                                    final shopsSnapshot = await routeDoc
+                                        .reference
+                                        .collection('shops')
+                                        .get();
+                                    for (var shopDoc in shopsSnapshot.docs) {
+                                      final shopData = shopDoc.data();
+                                      updatedTotalPaid +=
+                                          (shopData['totalPaid'] ?? 0)
+                                              .toDouble();
+                                    }
+                                  }
+
+                                  await FirebaseFirestore.instance
+                                      .collection('admin')
+                                      .doc('summary')
+                                      .set({
+                                    'latestTotalPaid': updatedTotalPaid,
+                                    'updatedAt': FieldValue.serverTimestamp(),
+                                  }, SetOptions(merge: true));
+
+                                  await _fetchTotalPaidAcrossAllRoutes();
+                                  amountSentController.clear();
+
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                        content: Text(
+                                            "Amount submitted and deducted successfully.")),
+                                  );
+                                } catch (e) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                        content:
+                                            Text("Error: ${e.toString()}")),
+                                  );
+                                } finally {
+                                  setState(() =>
+                                      isSubmitting = false); // 3. Stop loading
+                                }
+                              },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor:
+                              const Color.fromARGB(255, 113, 182, 116),
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                        ),
+                        child: isSubmitting
+                            ? const SizedBox(
+                                height: 24,
+                                width: 24,
+                                child: CircularProgressIndicator(
+                                    color: Colors.white, strokeWidth: 2),
+                              )
+                            : Center(
+                              child: const Text(
+                                  "Submit Amount",
+                                  style: TextStyle(color: Colors.black),
+                                ),
+                            ),
+                      ),
+                    ],
                   ),
                 ),
+                AccessCodeSetter(),
                 const SizedBox(height: 20),
                 GestureDetector(
                   onTap: () {
@@ -387,11 +799,14 @@ class _DashboardPageState extends State<DashboardPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(title,
-                style: const TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w500,
-                    color: Colors.black54)),
+            Text(
+              title,
+              style: const TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w500,
+                color: Colors.black54,
+              ),
+            ),
             const SizedBox(height: 8),
             isEditable
                 ? TextField(
@@ -405,18 +820,36 @@ class _DashboardPageState extends State<DashboardPage> {
                     keyboardType:
                         const TextInputType.numberWithOptions(decimal: true),
                   )
-                : Text(value,
+                : Text(
+                    value,
                     style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.black)),
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.black,
+                    ),
+                  ),
+
+            /// 👇 Show TextButton only for "Stocks Amount"
+            if (title == "Stocks Amount") ...[
+              const SizedBox(height: 8),
+              TextButton(
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const StockListScreen(),
+                    ),
+                  );
+                },
+                child: const Text("More Details"),
+              ),
+            ],
           ],
         ),
       ),
     );
   }
 
-  // ...existing code...
   Widget _buildStatusCard({
     required String title,
     required String amount,
@@ -460,6 +893,258 @@ class _DashboardPageState extends State<DashboardPage> {
               child: trailing,
             ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildCombinedStatusCard({
+    required bool isWeekCollectLoading,
+    required double weekCollected,
+    required double targetAmount,
+    required Function(String) onTargetEdit,
+    required bool isTargetLoading,
+    required LinearGradient gradient,
+  }) {
+    final TextEditingController _controller =
+        TextEditingController(text: targetAmount.toStringAsFixed(0));
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        gradient: gradient,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black12,
+            blurRadius: 6,
+            offset: Offset(0, 3),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.date_range, size: 28, color: Colors.deepOrange),
+              const SizedBox(width: 10),
+              const Text('This Week Summary',
+                  style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: Color.fromARGB(255, 161, 95, 41))),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              // Week Collected
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('Week Collected',
+                      style: TextStyle(
+                          fontSize: 13,
+                          color: Color.fromARGB(255, 116, 66, 24))),
+                  const SizedBox(height: 4),
+                   isWeekCollectLoading
+                      ? const SizedBox(
+                          height: 18,
+                          width: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : Text(
+                          'LKR ${weekCollected.toStringAsFixed(0)}',
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                ],
+              ),
+
+              // Target Collect
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  const Text(
+                    'Target Collect',
+                    style: TextStyle(
+                        fontSize: 13, color: Color.fromARGB(255, 116, 66, 24)),
+                  ),
+                  const SizedBox(height: 4),
+                  isTargetLoading
+                      ? const SizedBox(
+                          height: 18,
+                          width: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : Row(
+                          children: [
+                            Text(
+                              'LKR ${targetAmount.toStringAsFixed(0)}',
+                              style: const TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.edit, size: 18),
+                              onPressed: () {
+                                showDialog(
+                                  context: context,
+                                  builder: (context) => AlertDialog(
+                                    title: const Text("Edit Target"),
+                                    content: TextField(
+                                      controller: _controller,
+                                      keyboardType:
+                                          const TextInputType.numberWithOptions(
+                                              decimal: true),
+                                      decoration: const InputDecoration(
+                                          labelText: "Enter target amount"),
+                                    ),
+                                    actions: [
+                                      TextButton(
+                                        onPressed: () =>
+                                            Navigator.of(context).pop(),
+                                        child: const Text("Cancel"),
+                                      ),
+                                      ElevatedButton(
+                                        onPressed: () {
+                                          onTargetEdit(_controller.text);
+                                          Navigator.of(context).pop();
+                                        },
+                                        child: const Text("Save"),
+                                      ),
+                                    ],
+                                  ),
+                                );
+                              },
+                            ),
+                          ],
+                        ),
+                ],
+              ),
+            ],
+          )
+        ],
+      ),
+    );
+  }
+}
+
+class AnimatedDots extends StatefulWidget {
+  @override
+  _AnimatedDotsState createState() => _AnimatedDotsState();
+}
+
+class _AnimatedDotsState extends State<AnimatedDots>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+  late Animation<int> _dotCount;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller =
+        AnimationController(vsync: this, duration: Duration(milliseconds: 900))
+          ..repeat();
+    _dotCount = StepTween(begin: 1, end: 3).animate(_controller);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _dotCount,
+      builder: (context, child) {
+        String dots = '.' * _dotCount.value;
+        return Text(
+          'Loading$dots',
+          style: TextStyle(
+            fontSize: 18,
+            color: Colors.blueGrey,
+            fontWeight: FontWeight.w500,
+          ),
+        );
+      },
+    );
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+}
+
+class AccessCodeSetter extends StatefulWidget {
+  @override
+  _AccessCodeSetterState createState() => _AccessCodeSetterState();
+}
+
+class _AccessCodeSetterState extends State<AccessCodeSetter> {
+  final TextEditingController _codeController = TextEditingController();
+  bool _isSaving = false;
+  String? _message;
+
+  Future<void> _saveCode() async {
+    final code = _codeController.text.trim();
+
+    if (code.isEmpty) {
+      setState(() => _message = "Please enter a code.");
+      return;
+    }
+
+    setState(() {
+      _isSaving = true;
+      _message = null;
+    });
+
+    await FirebaseFirestore.instance.collection('admin').doc('config').set(
+      {'accessCode': code},
+      SetOptions(merge: true),
+    );
+
+    setState(() {
+      _isSaving = false;
+      _message = "Access code updated successfully.";
+    });
+
+    _codeController.clear();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      margin: const EdgeInsets.all(16),
+      elevation: 4,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text("Set Access Code",
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 10),
+            TextField(
+              controller: _codeController,
+              decoration: InputDecoration(
+                labelText: "Access Code",
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 12),
+            ElevatedButton(
+              onPressed: _isSaving ? null : _saveCode,
+              child: Text(_isSaving ? "Saving..." : "Save Code"),
+            ),
+            if (_message != null) ...[
+              const SizedBox(height: 8),
+              Text(_message!, style: TextStyle(color: Colors.green)),
+            ]
+          ],
+        ),
       ),
     );
   }
