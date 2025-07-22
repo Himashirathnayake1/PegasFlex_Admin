@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:pegasflex_admin/screens/PaymenthistoryScreen.dart';
+import 'package:pegasflex_admin/screens/collector_status_page.dart';
 import 'package:pegasflex_admin/screens/shop_details.dart';
 import 'package:pegasflex_admin/screens/stock_list.dart';
 
@@ -323,14 +324,21 @@ class _DashboardPageState extends State<DashboardPage> {
         currentIndex: 0,
         selectedItemColor: Colors.blueAccent,
         unselectedItemColor: Colors.grey,
-        items: const [
-          BottomNavigationBarItem(
+        items: [
+          const BottomNavigationBarItem(
               icon: Icon(Icons.dashboard), label: "Dashboard"),
-          BottomNavigationBarItem(
-              icon: Icon(Icons.chat_bubble_outline), label: "Chat"),
-          BottomNavigationBarItem(
+            BottomNavigationBarItem(
+            icon: GestureDetector(
+              onTap: () {
+              Navigator.push(context, MaterialPageRoute(builder: (_) => CollectorStatusPage()));
+              },
+              child: Icon(Icons.reviews),
+            ),
+            label: "Review",
+            ),
+          const BottomNavigationBarItem(
               icon: Icon(Icons.notifications_none), label: "Notifications"),
-          BottomNavigationBarItem(
+          const BottomNavigationBarItem(
               icon: Icon(Icons.settings), label: "Settings"),
         ],
       ),
