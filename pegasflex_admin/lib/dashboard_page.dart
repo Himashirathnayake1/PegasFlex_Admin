@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:pegasflex_admin/screens/PaymenthistoryScreen.dart';
 import 'package:pegasflex_admin/screens/collector_status_page.dart';
+import 'package:pegasflex_admin/screens/feedback_list_screen.dart';
+import 'package:pegasflex_admin/screens/form_submissions.dart';
 import 'package:pegasflex_admin/screens/shop_details.dart';
 import 'package:pegasflex_admin/screens/stock_list.dart';
 
@@ -14,6 +16,7 @@ class DashboardPage extends StatefulWidget {
 }
 
 class _DashboardPageState extends State<DashboardPage> {
+  int _selectedIndex = 0;
   double upcomingAmount = 0.0;
   double stockAmount = 0.0;
   double assignedAmount = 0.0;
@@ -321,25 +324,48 @@ class _DashboardPageState extends State<DashboardPage> {
 
     return Scaffold(
       bottomNavigationBar: BottomNavigationBar(
-        currentIndex: 0,
+        currentIndex: _selectedIndex,
         selectedItemColor: Colors.blueAccent,
         unselectedItemColor: Colors.grey,
-        items: [
-          const BottomNavigationBarItem(
-              icon: Icon(Icons.dashboard), label: "Dashboard"),
-            BottomNavigationBarItem(
-            icon: GestureDetector(
-              onTap: () {
-              Navigator.push(context, MaterialPageRoute(builder: (_) => CollectorStatusPage()));
-              },
-              child: Icon(Icons.reviews),
-            ),
-            label: "Review",
-            ),
-          const BottomNavigationBarItem(
-              icon: Icon(Icons.notifications_none), label: "Notifications"),
-          const BottomNavigationBarItem(
-              icon: Icon(Icons.settings), label: "Settings"),
+        onTap: (index) {
+          setState(() {
+            _selectedIndex = index;
+          });
+
+          if (index == 1) {
+            Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => FeedbackListPage()),
+            );
+          } else if (index == 2) {
+            Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => CollectorStatusPage()),
+            );
+          } else if (index == 3) {
+            Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => ReceiptsPage ()),
+            );
+          }
+        },
+        items: const [
+          BottomNavigationBarItem(
+            icon: Icon(Icons.dashboard),
+            label: "Dashboard",
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.reviews),
+            label: "Feedback",
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.stay_current_landscape_outlined),
+            label: "Status",
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.dynamic_form),
+            label: "Submissions",
+          ),
         ],
       ),
       body: SafeArea(
@@ -718,11 +744,11 @@ class _DashboardPageState extends State<DashboardPage> {
                                     color: Colors.white, strokeWidth: 2),
                               )
                             : Center(
-                              child: const Text(
+                                child: const Text(
                                   "Submit Amount",
                                   style: TextStyle(color: Colors.black),
                                 ),
-                            ),
+                              ),
                       ),
                     ],
                   ),
@@ -956,7 +982,7 @@ class _DashboardPageState extends State<DashboardPage> {
                           fontSize: 13,
                           color: Color.fromARGB(255, 116, 66, 24))),
                   const SizedBox(height: 4),
-                   isWeekCollectLoading
+                  isWeekCollectLoading
                       ? const SizedBox(
                           height: 18,
                           width: 18,
