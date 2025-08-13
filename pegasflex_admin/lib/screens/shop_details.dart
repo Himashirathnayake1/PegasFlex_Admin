@@ -71,13 +71,14 @@ class _ShopDetailsScreenState extends State<ShopDetailsScreen> {
     final filteredShops = _applyFilters();
 
     return Scaffold(
-      appBar: AppBar(title: const Text("Shop Details")),
+      appBar: AppBar(title: const Text("Shop Details"),backgroundColor: Colors.greenAccent
+      ,),
       body: Column(
         children: [
           _buildFilters(),
           Expanded(
             child: filteredShops.isEmpty
-                ? const Center(child: Text("No shops found."))
+                ? const Center(child: Text("Loading...."))
                 : ListView.separated(
                     padding: const EdgeInsets.all(16),
                     itemCount: filteredShops.length,

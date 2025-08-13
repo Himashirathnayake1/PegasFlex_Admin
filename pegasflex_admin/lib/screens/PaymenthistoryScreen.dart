@@ -73,6 +73,7 @@ class _PaymentHistoryScreenState extends State<PaymentHistoryScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Payment History'),
+        backgroundColor: Colors.greenAccent,
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
@@ -82,39 +83,61 @@ class _PaymentHistoryScreenState extends State<PaymentHistoryScreen> {
       ),
       body: isLoading
           ? const Center(child: CircularProgressIndicator())
-          : RefreshIndicator(
-              onRefresh: fetchHistoryData,
-              child: ListView(
+          : SingleChildScrollView(
+            child: Padding(
                 padding: const EdgeInsets.all(16),
-                children: [
-                  const Text("Collected",
-                      style: TextStyle(
-                          fontSize: 20, fontWeight: FontWeight.bold)),
-                  const SizedBox(height: 8),
-                  if (collected.isEmpty)
-                    const Text("No collected records."),
-                  ...collected.map((item) => ListTile(
-                        leading: const Icon(Icons.arrow_upward,
-                            color: Colors.green),
-                        title: Text("LKR ${item['amount']}"),
-                        subtitle: Text(formatTimestamp(item['timestamp'])),
-                      )),
-                  const SizedBox(height: 24),
-                  const Text("Received",
-                      style: TextStyle(
-                          fontSize: 20, fontWeight: FontWeight.bold)),
-                  const SizedBox(height: 8),
-                  if (received.isEmpty)
-                    const Text("No received records."),
-                  ...received.map((item) => ListTile(
-                        leading: const Icon(Icons.arrow_downward,
-                            color: Colors.red),
-                        title: Text("LKR ${item['amount']}"),
-                        subtitle: Text(formatTimestamp(item['timestamp'])),
-                      )),
-                ],
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    /// Collected Column
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text("Collected",
+                              style: TextStyle(
+                                  fontSize: 18, fontWeight: FontWeight.bold)),
+                          const SizedBox(height: 8),
+                          if (collected.isEmpty)
+                            const Text("No collected records."),
+                          ...collected.map((item) => ListTile(
+                                leading: const Icon(Icons.arrow_upward,
+                                    color: Colors.green),
+                                title: Text("LKR ${item['amount']}"),
+                                subtitle:
+                                    Text(formatTimestamp(item['timestamp'])),
+                              )),
+                        ],
+                      ),
+                    ),
+            
+                    const SizedBox(width: 16),
+            
+                    /// Received Column
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text("Received",
+                              style: TextStyle(
+                                  fontSize: 18, fontWeight: FontWeight.bold)),
+                          const SizedBox(height: 8),
+                          if (received.isEmpty)
+                            const Text("No received records."),
+                          ...received.map((item) => ListTile(
+                                leading: const Icon(Icons.arrow_downward,
+                                    color: Colors.red),
+                                title: Text("LKR ${item['amount']}"),
+                                subtitle:
+                                    Text(formatTimestamp(item['timestamp'])),
+                              )),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
               ),
-            ),
+          ),
     );
   }
 }
