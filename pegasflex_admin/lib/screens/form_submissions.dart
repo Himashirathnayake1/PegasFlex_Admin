@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:url_launcher/url_launcher.dart';
+  import 'package:intl/intl.dart';
 
 class ReceiptsPage extends StatefulWidget {
   const ReceiptsPage({Key? key}) : super(key: key);
@@ -21,26 +22,45 @@ class _ReceiptsPageState extends State<ReceiptsPage> {
     super.initState();
     _fetchReceipts();
   }
+Future<void> _fetchReceipts() async {
+  try {
+    final response = await http.get(Uri.parse(apiUrl));
+    if (response.statusCode == 200) {
+      final List<dynamic> data = json.decode(response.body);
+      setState(() {
+        receiptData = data.map((e) => Map<String, dynamic>.from(e)).toList();
 
-  Future<void> _fetchReceipts() async {
-    try {
-      final response = await http.get(Uri.parse(apiUrl));
-      if (response.statusCode == 200) {
-        final List<dynamic> data = json.decode(response.body);
-        setState(() {
-          receiptData = data.map((e) => Map<String, dynamic>.from(e)).toList();
-          isLoading = false;
+        final dateFormat = DateFormat("M/d/yyyy HH:mm:ss"); // <-- matches your Time field
+
+        // ✅ Sort latest first
+        receiptData.sort((a, b) {
+          DateTime aTime;
+          DateTime bTime;
+          try {
+            aTime = dateFormat.parse(a['Time'] ?? '');
+          } catch (_) {
+            aTime = DateTime(1900);
+          }
+          try {
+            bTime = dateFormat.parse(b['Time'] ?? '');
+          } catch (_) {
+            bTime = DateTime(1900);
+          }
+          return bTime.compareTo(aTime); // descending = latest first
         });
-      } else {
-        throw Exception("Failed to load receipts");
-      }
-    } catch (e) {
-      setState(() => isLoading = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Error fetching receipts: $e")),
-      );
+
+        isLoading = false;
+      });
+    } else {
+      throw Exception("Failed to load receipts");
     }
+  } catch (e) {
+    setState(() => isLoading = false);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text("Error fetching receipts: $e")),
+    );
   }
+}
 
   Future<void> _openReceipt(String url) async {
     final Uri uri = Uri.parse(url);
@@ -58,6 +78,7 @@ class _ReceiptsPageState extends State<ReceiptsPage> {
     return Scaffold(
       appBar: AppBar(
         title: const Text("Submitted Receipts"),
+         backgroundColor: Colors.greenAccent,
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),

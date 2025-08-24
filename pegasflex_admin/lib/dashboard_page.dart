@@ -45,11 +45,13 @@ class _DashboardPageState extends State<DashboardPage> {
   void initState() {
     super.initState();
     _fetchTotalPaidAcrossAllRoutes();
-    _fetchWeekCollected();
+    _fetchWeekCollected() ;
     _fetchTotalPaidForDate();
     _loadTargetCollectAmount();
     loadDashboardData();
+  
   }
+
 
   void _showEditTargetDialog(
       BuildContext context, String current, Function(String) onSave) {
@@ -164,6 +166,67 @@ class _DashboardPageState extends State<DashboardPage> {
       isLoading = false;
     });
   }
+  
+// Future<void> testAdminSummaryCalculations({bool saveToFirestore = false}) async {
+  
+//     setState(() => isWeekCollectLoading = true);
+//   final now = DateTime.now();
+//   final todayStart = DateTime(now.year, now.month, now.day);
+
+//   // Week start/end
+//   final int weekday = now.weekday; // Monday = 1
+//   final monday = now.subtract(Duration(days: weekday - 1));
+//   final sunday = monday.add(const Duration(days: 6));
+
+//   final Timestamp weekStart = Timestamp.fromDate(DateTime(monday.year, monday.month, monday.day, 0, 0, 0));
+//   final Timestamp weekEnd = Timestamp.fromDate(DateTime(sunday.year, sunday.month, sunday.day, 23, 59, 59));
+
+
+//   double weekCollected = 0.0;
+
+//   final routesSnapshot = await FirebaseFirestore.instance.collection('routes').get();
+
+//   for (var routeDoc in routesSnapshot.docs) {
+//     final shopsSnapshot = await routeDoc.reference.collection('shops').get();
+
+//     for (var shopDoc in shopsSnapshot.docs) {
+//             // Fetch all transactions once
+//       final transactionsSnapshot = await shopDoc.reference
+//           .collection('transactions')
+//           .where('timestamp', isGreaterThanOrEqualTo: weekStart)
+//           .get();
+
+//       for (var tx in transactionsSnapshot.docs) {
+//         final data = tx.data();
+//         final type = (data['type'] ?? 'Paid').toString().toLowerCase();
+//         final amount = (data['amount'] ?? 0).toDouble();
+
+       
+
+//         // Week collected
+//         if (type == 'paid') {
+//           final txTime = (data['timestamp'] as Timestamp).toDate();
+//           if (txTime.isAfter(weekStart.toDate()) && txTime.isBefore(weekEnd.toDate())) {
+//             weekCollected += amount;
+//           }
+
+//         }
+//       }
+//     }
+//     isWeekCollectLoading = false;
+//   }  // Log results
+//   print("=== Test Admin Summary ===");
+//   print("Week Collected (weekCollected): $weekCollected");
+
+//   // Save to Firestore
+//   if (saveToFirestore) {
+//     await FirebaseFirestore.instance.collection('admin').doc('summary').set({
+//       'weekCollected': weekCollected,
+//     }, SetOptions(merge: true));
+//     print("Summary saved to Firestore ✅");
+//   }
+// }
+
 
   Future<void> _fetchWeekCollected() async {
     setState(() => isWeekCollectLoading = true);
@@ -221,7 +284,12 @@ class _DashboardPageState extends State<DashboardPage> {
         }
       }
     }
+    // Save to Firestore
 
+    await FirebaseFirestore.instance.collection('admin').doc('summary').set({
+      'weekCollected': total,
+    }, SetOptions(merge: true));
+    print("Summary saved to Firestore ✅");
     setState(() {
       weekCollected = total;
       isWeekCollectLoading = false;
@@ -383,7 +451,14 @@ class _DashboardPageState extends State<DashboardPage> {
                     Spacer(),
                     IconButton(
                       icon: const Icon(Icons.refresh),
-                      onPressed: loadDashboardData,
+                      onPressed: () {
+                        loadDashboardData();
+                        _fetchTotalPaidAcrossAllRoutes();
+                        _fetchTotalPaidForDate();
+                        _loadTargetCollectAmount();
+                        _fetchWeekCollected();
+                      },
+
                     ),
                   ],
                 ),

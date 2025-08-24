@@ -13,9 +13,7 @@ class _CollectorStatusPageState extends State<CollectorStatusPage> {
   int collectedCount = 0;
   int notCollectedCount = 0;
   bool isLoading = true;
-  List<String> dates = [];
-  List<int> paidCounts = [];
-  List<int> unpaidCounts = [];
+  int totalShops = 0;
   List<Map<String, dynamic>> dailySnapshots = [];
 
   @override
@@ -25,94 +23,99 @@ class _CollectorStatusPageState extends State<CollectorStatusPage> {
     _fetchDailySnapshots();
   }
 
+  /// ✅ Fetch last 7 days trend from `dailyPaidShops`
   Future<void> _fetchDailySnapshots() async {
-    final snapshots = await FirebaseFirestore.instance
-        .collection('admin')
-        .doc('summary')
-        .collection('dailyStatus')
-        .orderBy('createdAt', descending: true)
-        .limit(7)
-        .get();
-
-    dailySnapshots = [];
-
-    for (var doc in snapshots.docs) {
-      final data = doc.data();
-      final dateStr = data['date'] ?? ''; // already saved as 'yyyy-MM-dd'
-      final formatted = dateStr.substring(5); // show as MM-dd
-
-      dailySnapshots.add({
-        'date': formatted,
-        'paid': data['paidCount'] ?? 0,
-        'unpaid': data['unpaidCount'] ?? 0,
-      });
-    }
-
-    dailySnapshots = dailySnapshots.reversed.toList(); // Oldest to latest
-    setState(() {});
-  }
-
-  Future<void> _saveDailyStatusSnapshot(int paidCount, int unpaidCount) async {
-    final now = DateTime.now();
-    final formattedDate =
-        "${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}";
-
-    final docRef = FirebaseFirestore.instance
-        .collection('admin')
-        .doc('summary')
-        .collection('dailyStatus')
-        .doc(formattedDate); // One doc per day
-
-    final snapshot = await docRef.get();
-
-    if (!snapshot.exists) {
-      await docRef.set({
-        'date': formattedDate,
-        'paidCount': paidCount,
-        'unpaidCount': unpaidCount,
-        'createdAt': Timestamp.now(),
-      });
-      print('✅ Daily snapshot saved for $formattedDate');
-    } else {
-      print('⚠️ Snapshot already exists for $formattedDate');
-    }
-  }
-
-  Future<void> _fetchCollectionStatus() async {
-    int paid = 0;
-    int unpaid = 0;
-
     try {
+      // 1️⃣ Count total shops once
+      int total = 0;
       final routesSnapshot =
           await FirebaseFirestore.instance.collection('routes').get();
-
       for (var routeDoc in routesSnapshot.docs) {
         final shopsSnapshot =
             await routeDoc.reference.collection('shops').get();
-        for (var shopDoc in shopsSnapshot.docs) {
-          final data = shopDoc.data();
-          if (data['status'] == 'Paid') {
-            paid++;
-          } else {
-            unpaid++;
-          }
-        }
+        total += shopsSnapshot.docs.length;
       }
+      totalShops = total;
+
+      // 2️⃣ Fetch dailyPaidShops
+      final snapshots = await FirebaseFirestore.instance
+          .collection('admin')
+          .doc('summary')
+          .collection('dailyPaidShops')
+          .orderBy('date', descending: true)
+          .limit(7)
+          .get();
+
+      dailySnapshots = [];
+
+      for (var doc in snapshots.docs) {
+        final data = doc.data();
+        final dateStr = data['date'] ?? ''; // yyyy-MM-dd
+        final formatted =
+            dateStr.length >= 5 ? dateStr.substring(5) : dateStr;
+
+        final paid = data['paidShopsCount'] ?? 0;
+        final unpaid = totalShops - paid;
+
+        dailySnapshots.add({
+          'date': formatted,
+          'paid': paid,
+          'unpaid': unpaid,
+        });
+      }
+
+      dailySnapshots = dailySnapshots.reversed.toList(); // oldest → latest
+      setState(() {});
+    } catch (e) {
+      print('❌ Error fetching daily snapshots: $e');
+    }
+  }
+
+  /// ✅ Fetch today’s collection summary
+  Future<void> _fetchCollectionStatus() async {
+    try {
+      final now = DateTime.now();
+      final todayKey =
+          "${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}";
+
+      // Get today’s snapshot
+      final todayDoc = await FirebaseFirestore.instance
+          .collection('admin')
+          .doc('summary')
+          .collection('dailyPaidShops')
+          .doc(todayKey)
+          .get();
+
+      int paid = 0;
+      if (todayDoc.exists) {
+        paid = todayDoc.data()?['paidShopsCount'] ?? 0;
+      }
+
+      // Count all shops
+      int total = 0;
+      final routesSnapshot =
+          await FirebaseFirestore.instance.collection('routes').get();
+      for (var routeDoc in routesSnapshot.docs) {
+        final shopsSnapshot =
+            await routeDoc.reference.collection('shops').get();
+        total += shopsSnapshot.docs.length;
+      }
+
+      final unpaid = total - paid;
 
       setState(() {
         collectedCount = paid;
         notCollectedCount = unpaid;
+        totalShops = total;
         isLoading = false;
       });
-
-      // Save to Firestore
-      await _saveDailyStatusSnapshot(paid, unpaid);
     } catch (e) {
       print('❌ Error fetching collection status: $e');
       setState(() => isLoading = false);
     }
   }
 
+  /// ✅ Pie chart sections
   List<PieChartSectionData> _generateSections() {
     final total = collectedCount + notCollectedCount;
     if (total == 0) {
@@ -185,7 +188,7 @@ class _CollectorStatusPageState extends State<CollectorStatusPage> {
     return Scaffold(
       appBar: AppBar(
         title: const Text("Collector Status"),
-        backgroundColor: Colors.green.shade800,
+        backgroundColor: Colors.greenAccent,
         foregroundColor: Colors.white,
       ),
       body: SingleChildScrollView(
@@ -205,30 +208,8 @@ class _CollectorStatusPageState extends State<CollectorStatusPage> {
                         "✅ Collected", collectedCount, Colors.green),
                     _buildStatusCard(
                         "❌ Not Collected", notCollectedCount, Colors.red),
-                    const SizedBox(height: 10),
-                    ElevatedButton.icon(
-                      // ← ADD HERE
-                      icon: const Icon(Icons.save),
-                      label: const Text("Save Daily Snapshot"),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.green.shade700,
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 20, vertical: 12),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                      ),
-                      onPressed: () async {
-                        await _saveDailyStatusSnapshot(
-                            collectedCount, notCollectedCount);
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                              content: Text("✅ Snapshot saved successfully")),
-                        );
-                      },
-                    ),
                     const SizedBox(height: 30),
+
                     const Text(
                       'Collection Chart',
                       style:
@@ -245,8 +226,9 @@ class _CollectorStatusPageState extends State<CollectorStatusPage> {
                         ),
                       ),
                     ),
-                    const SizedBox(height: 20),
-                    Text("📈 Daily Collection Trend",
+
+                    const SizedBox(height: 30),
+                    const Text("📈 Daily Collection Trend",
                         style: TextStyle(
                             fontSize: 18, fontWeight: FontWeight.bold)),
                     AspectRatio(
@@ -266,8 +248,8 @@ class _CollectorStatusPageState extends State<CollectorStatusPage> {
                                   getTitlesWidget: (value, meta) {
                                     int index = value.toInt();
                                     if (index < dailySnapshots.length) {
-                                      return Text(dailySnapshots[index]
-                                          ['date']); // already formatted
+                                      return Text(
+                                          dailySnapshots[index]['date']);
                                     }
                                     return const Text('');
                                   },
@@ -277,10 +259,9 @@ class _CollectorStatusPageState extends State<CollectorStatusPage> {
                             ),
                             borderData: FlBorderData(show: true),
                             lineBarsData: [
-                              // Green Line - Paid
+                              // ✅ Collected Line
                               LineChartBarData(
-                                spots:
-                                    List.generate(dailySnapshots.length, (i) {
+                                spots: List.generate(dailySnapshots.length, (i) {
                                   return FlSpot(
                                       i.toDouble(),
                                       (dailySnapshots[i]['paid'] ?? 0)
@@ -291,10 +272,9 @@ class _CollectorStatusPageState extends State<CollectorStatusPage> {
                                 barWidth: 3,
                                 dotData: FlDotData(show: true),
                               ),
-                              // Red Line - Unpaid
+                              // ❌ Not Collected Line
                               LineChartBarData(
-                                spots:
-                                    List.generate(dailySnapshots.length, (i) {
+                                spots: List.generate(dailySnapshots.length, (i) {
                                   return FlSpot(
                                       i.toDouble(),
                                       (dailySnapshots[i]['unpaid'] ?? 0)

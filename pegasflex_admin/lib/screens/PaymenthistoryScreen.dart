@@ -29,7 +29,7 @@ class _PaymentHistoryScreenState extends State<PaymentHistoryScreen> {
       final paidHistorySnap = await FirebaseFirestore.instance
           .collection('admin')
           .doc('summary')
-          .collection('paidHistory')
+          .collection('todayCollectionHistory')
           .orderBy('timestamp', descending: true)
           .get();
 
@@ -41,7 +41,7 @@ class _PaymentHistoryScreenState extends State<PaymentHistoryScreen> {
       setState(() {
         collected = paidHistorySnap.docs
             .map((doc) => {
-                  'amount': doc['increment'],
+                  'amount': doc['amount'],
                   'timestamp': doc['timestamp'],
                 })
             .toList();
